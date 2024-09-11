@@ -14,25 +14,25 @@ provider "azurerm" {
 }
 
 # Create Resource Group
-resource "azurerm_resource_group" "rg" {
-  name     = "test-scale-set-resources"
+resource "azurerm_resource_group" "myrg" {
+  name     = "myrg-resources"
   location = "East US"
 }
 
 # Create Virtual Network
-resource "azurerm_virtual_network" "vnet" {
-  name                = "example-vnet"
+resource "azurerm_virtual_network" "mynet" {
+  name                = "my-vnet"
   address_space       = ["10.0.0.0/16"]
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
+  location            = azurerm_resource_group.myrg.location
+  resource_group_name = azurerm_resource_group.myrg.name
 }
 
 
 # Create a Network Security Group (NSG)
-resource "azurerm_network_security_group" "nsg" {
-  name                = "example-nsg"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
+resource "azurerm_network_security_group" "mynsg" {
+  name                = "my-nsg"
+  location            = azurerm_resource_group.myrg.location
+  resource_group_name = azurerm_resource_group.myrg.name
 
   security_rule {
     name                       = "AllowHTTP"
@@ -60,34 +60,34 @@ resource "azurerm_network_security_group" "nsg" {
 }
 
 # Create Subnet and associate NSG with it
-resource "azurerm_subnet" "subnet" {
-  name                 = "example-subnet"
-  resource_group_name  = azurerm_resource_group.rg.name
-  virtual_network_name = azurerm_virtual_network.vnet.name
+resource "azurerm_subnet" "mysubnet" {
+  name                 = "my-subnet"
+  resource_group_name  = azurerm_resource_group.myrg.name
+  virtual_network_name = azurerm_virtual_network.mynet.name
   address_prefixes     = ["10.0.1.0/24"]
 }
 
-# Associate NSG with Network Interface for VM2
+# Associate NSG with subnet for scaleset
 resource "azurerm_subnet_network_security_group_association" "nsg_assoc_vm2" {
-  subnet_id      = azurerm_subnet.subnet.id
-  network_security_group_id = azurerm_network_security_group.nsg.id
+  subnet_id                 = azurerm_subnet.mysubnet.id
+  network_security_group_id = azurerm_network_security_group.mynsg.id
 }
 
 # Create a Public IP for Load Balancer
 resource "azurerm_public_ip" "lb_public_ip" {
-  name                = "example-lb-public-ip"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
+  name                = "my-lb-public-ip"
+  location            = azurerm_resource_group.myrg.location
+  resource_group_name = azurerm_resource_group.myrg.name
   allocation_method   = "Static"
   sku                 = "Standard"
 }
 
 
 # Create Load Balancer
-resource "azurerm_lb" "lb" {
-  name                = "example-lb"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
+resource "azurerm_lb" "mylb" {
+  name                = "my-lb"
+  location            = azurerm_resource_group.myrg.location
+  resource_group_name = azurerm_resource_group.myrg.name
   sku                 = "Standard"
 
   frontend_ip_configuration {
@@ -98,14 +98,14 @@ resource "azurerm_lb" "lb" {
 
 # Create Load Balancer Backend Pool
 resource "azurerm_lb_backend_address_pool" "lb_backend_pool" {
-  loadbalancer_id = azurerm_lb.lb.id
-  name            = "example-backend-pool"
+  loadbalancer_id = azurerm_lb.mylb.id
+  name            = "my-backend-pool"
 }
 
 # Create Load Balancer Health Probe
 resource "azurerm_lb_probe" "lb_health_probe" {
-  loadbalancer_id     = azurerm_lb.lb.id
-  name                = "example-health-probe"
+  loadbalancer_id     = azurerm_lb.mylb.id
+  name                = "my-health-probe"
   protocol            = "Http"
   port                = 80
   request_path        = "/"
@@ -115,13 +115,14 @@ resource "azurerm_lb_probe" "lb_health_probe" {
 
 # Create Load Balancer Rule for HTTP traffic
 resource "azurerm_lb_rule" "lb_rule" {
-  loadbalancer_id                = azurerm_lb.lb.id
-  name                           = "example-lb-rule"
+  loadbalancer_id                = azurerm_lb.mylb.id
+  name                           = "my-lb-rule"
   protocol                       = "Tcp"
   frontend_ip_configuration_name = "PublicIPAddress"
   frontend_port                  = 80
   backend_port                   = 80
   probe_id                       = azurerm_lb_probe.lb_health_probe.id
+  backend_address_pool_ids       = [azurerm_lb_backend_address_pool.lb_backend_pool.id]  # Reference to backend pool
 }
 
 locals {
@@ -135,11 +136,11 @@ locals {
 
 # Create a Virtual Machine Scale Set (VMSS)
 resource "azurerm_linux_virtual_machine_scale_set" "vmss" {
-  name                = "example-vmss"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
+  name                = "my-vmss"
+  location            = azurerm_resource_group.myrg.location
+  resource_group_name = azurerm_resource_group.myrg.name
   sku                 = "Standard_B1s"
-  instances           = 2  # Number of VM instances in the scale set
+  instances           = 2 # Number of VM instances in the scale set
   upgrade_mode        = "Manual"
 
   source_image_reference {
@@ -155,12 +156,12 @@ resource "azurerm_linux_virtual_machine_scale_set" "vmss" {
   }
 
   network_interface {
-    name    = "example-vmss-nic"
+    name    = "my-vmss-nic"
     primary = true
 
     ip_configuration {
       name                                   = "internal"
-      subnet_id                              = azurerm_subnet.subnet.id
+      subnet_id                              = azurerm_subnet.mysubnet.id
       load_balancer_backend_address_pool_ids = [azurerm_lb_backend_address_pool.lb_backend_pool.id]
       primary                                = true
     }
@@ -179,9 +180,9 @@ resource "azurerm_linux_virtual_machine_scale_set" "vmss" {
 
 # Autoscaling for Scale Set (Optional)
 resource "azurerm_monitor_autoscale_setting" "autoscale" {
-  name                = "example-autoscale"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
+  name                = "my-autoscale"
+  location            = azurerm_resource_group.myrg.location
+  resource_group_name = azurerm_resource_group.myrg.name
   target_resource_id  = azurerm_linux_virtual_machine_scale_set.vmss.id
 
   profile {
